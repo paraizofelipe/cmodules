@@ -23,11 +23,22 @@ Mod para o Claude Code que abre uma sidebar com o uso da assinatura e do context
   segundos (o cabeçalho mostra "atualizando…" enquanto isso).
 - O cabeçalho mostra há quanto tempo os números foram atualizados.
 
-## Uso
+## Instalação
 
 ```sh
-claude --plugin-dir ~/projects/cmodules/csidebar
+claude plugin marketplace add paraizofelipe/cmodules
+claude plugin install csidebar@cmodules
 ```
+
+Ou, dentro de uma sessão:
+
+```
+/plugin install csidebar --marketplace paraizofelipe/cmodules
+```
+
+Para atualizar: `claude plugin marketplace update cmodules`.
+
+## Uso
 
 A sidebar (46 colunas) abre sozinha em terminais largos (≥ 144 colunas) e fica ancorada ao
 lado do transcript no layout fullscreen. Em qualquer largura, `/csidebar` abre
@@ -40,6 +51,10 @@ contexto aparece de qualquer forma.
 ## Desenvolvimento
 
 ```sh
+claude --plugin-dir ~/projects/cmodules/csidebar   # recarrega a cada turno
 claude plugin validate .
 claude plugin test .
 ```
+
+O plugin instalado é uma cópia: ao publicar mudanças, aumente o `version` em
+`.claude-plugin/plugin.json` antes do push.

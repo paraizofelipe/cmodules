@@ -1,0 +1,12 @@
+{
+  "name": "cmodules",
+  "owner": { "name": "Felipe Paraizo" },
+  "description": "Módulos (mods) para o Claude Code",
+  "plugins": [
+    {
+      "name": "csidebar",
+      "source": "./csidebar",
+      "description": "Sidebar com o uso dos limites (5h, semana, Fable 5) e do contexto, com a grid do /context"
+    }
+  ]
+}
