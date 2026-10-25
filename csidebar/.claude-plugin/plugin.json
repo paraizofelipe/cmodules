@@ -1,0 +1,6 @@
+{
+  "name": "csidebar",
+  "version": "0.1.0",
+  "description": "Sidebar com o uso dos limites (5h, semana, Fable 5) e do contexto, com a grid do /context",
+  "types": "./types/index.d.ts"
+}
