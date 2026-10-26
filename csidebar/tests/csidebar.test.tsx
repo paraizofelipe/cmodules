@@ -227,3 +227,32 @@ test('antes da primeira contagem mostra que o contexto está sendo calculado', a
   expect((await ui.find({ type: 'Text', text: 'Calculando o contexto…' })) !== undefined).toBe(true)
   await ui.unmount()
 })
+
+// O amarelo começa em 80% do caminho até o auto-compact (967k → 773,6k).
+for (const { name, totalTokens, percentage, isAutoCompactEnabled, color } of [
+  { name: 'verde longe do auto-compact', totalTokens: 81_200, percentage: 8, isAutoCompactEnabled: true, color: 'success' },
+  { name: 'verde em 75% da janela, ainda longe do auto-compact', totalTokens: 750_000, percentage: 75, isAutoCompactEnabled: true, color: 'success' },
+  { name: 'verde logo antes dos últimos 20% até o auto-compact', totalTokens: 773_599, percentage: 77, isAutoCompactEnabled: true, color: 'success' },
+  { name: 'amarelo nos últimos 20% até o auto-compact', totalTokens: 773_600, percentage: 77, isAutoCompactEnabled: true, color: 'warning' },
+  { name: 'vermelho ao chegar no auto-compact', totalTokens: 967_000, percentage: 97, isAutoCompactEnabled: true, color: 'error' },
+  { name: 'verde com o auto-compact desligado, medindo pela janela', totalTokens: 780_000, percentage: 78, isAutoCompactEnabled: false, color: 'success' },
+  { name: 'amarelo com o auto-compact desligado em 80% da janela', totalTokens: 800_000, percentage: 80, isAutoCompactEnabled: false, color: 'warning' },
+  { name: 'vermelho com o auto-compact desligado e a janela cheia', totalTokens: 1_000_000, percentage: 100, isAutoCompactEnabled: false, color: 'error' },
+]) {
+  test(`pinta a barra de ${name}`, async ($, on) => {
+    stubEngine(on)
+    const breakdown = { ...BREAKDOWN, totalTokens, percentage, isAutoCompactEnabled }
+    on('session.usage', () => ({
+      value: { startedAt: 0, context: { window: 1_000_000, breakdown }, rateLimits: [] },
+    }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    const ui = await $.ui.mount(PANE)
+    const texts = await ui.findAll({ type: 'Text' })
+
+    expect(texts.find(one => one.text === `${percentage}%`)?.props.color).toBe(color)
+    // Cheia, a barra de fora também só mostra █; a cor está no Text de dentro.
+    expect(texts.find(one => /^█+$/.test(one.text) && 'color' in one.props)?.props.color).toBe(color)
+    await ui.unmount()
+  })
+}

@@ -70,8 +70,17 @@ const snapshot = (b: SessionContextBreakdown): Context => {
   }
 }
 
-const colorOf = (percent: number): Color =>
-  percent >= 90 ? 'error' : percent >= 70 ? 'warning' : 'success'
+// Fração do caminho até o auto-compact a partir da qual a cor fica amarela.
+const WARN_SHARE = 0.8
+
+// Verde longe do auto-compact, amarelo nos últimos 20% antes dele e vermelho
+// quando ele já vai rodar. Desligado, o limite é a própria janela.
+const colorOf = (ctx: Context): Color => {
+  const limit = ctx.autoCompactThreshold ?? ctx.maxTokens
+  if (ctx.totalTokens >= limit) return 'error'
+
+  return ctx.totalTokens >= limit * WARN_SHARE ? 'warning' : 'success'
+}
 
 const tokens = (count: number): string => {
   const short = (value: number, unit: string) =>
@@ -225,12 +234,12 @@ export const register: Register = on => {
     const width = Math.max(10, e.props.bodyColumns - 2)
     const isIdle = !isRunning && at - lastActivity >= IDLE_MS
 
-    const bar = (percent: number) => {
+    const bar = (percent: number, color: Color) => {
       const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
 
       return (
         <Text>
-          <Text color={colorOf(percent)}>{'█'.repeat(filled)}</Text>
+          <Text color={color}>{'█'.repeat(filled)}</Text>
           <Text dimColor>{'░'.repeat(width - filled)}</Text>
         </Text>
       )
@@ -248,9 +257,9 @@ export const register: Register = on => {
         <Box flexDirection="column">
           <Box justifyContent="space-between">
             <Text>{tokens(ctx.totalTokens)} / {tokens(ctx.maxTokens)} tokens</Text>
-            <Text color={colorOf(ctx.percentage)}>{ctx.percentage}%</Text>
+            <Text color={colorOf(ctx)}>{ctx.percentage}%</Text>
           </Box>
-          {bar(ctx.percentage)}
+          {bar(ctx.percentage, colorOf(ctx))}
           <Text dimColor>{left}</Text>
         </Box>,
         <Box flexDirection="column">

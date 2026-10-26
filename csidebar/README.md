@@ -4,7 +4,9 @@ Mod para o Claude Code que abre uma sidebar com o uso do contexto. Os limites
 da assinatura (5h e semana) ficam no [cstatus](../cstatus).
 
 - **Contexto**: tokens usados sobre a janela, com barra e %, e onde o
-  auto-compact dispara.
+  auto-compact dispara. A cor segue a distância até o auto-compact: verde
+  longe dele, amarela nos últimos 20% do caminho e vermelha quando ele já vai
+  rodar. Com o auto-compact desligado, a medida é a própria janela.
 - **Contexto por categoria**: a mesma grid do `/context`, com a legenda por
   categoria (System prompt, System tools, MCP, Skills, Messages…) e os tokens
   de cada servidor MCP carregado.

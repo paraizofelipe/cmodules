@@ -1,6 +1,6 @@
 {
   "name": "csidebar",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Sidebar com o uso do contexto, com a grid do /context",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT",
