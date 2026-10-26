@@ -18,12 +18,12 @@ const hint = (props: { isWorking?: boolean; isDraft?: boolean } = {}) =>
 
 const stubEngine = (
   on: On,
-  { model, rateLimits }: { model: string; rateLimits: Limit[] },
+  { model, rateLimits }: { model: string | (() => string); rateLimits: Limit[] },
 ): (string | undefined)[] => {
   const statuses: (string | undefined)[] = []
   on('clock.now', () => ({ value: NOW }))
   on('clock.every', () => ({ value: undefined }))
-  on('session.model', () => ({ value: model }))
+  on('session.model', () => ({ value: typeof model === 'function' ? model() : model }))
   on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 1_000_000 }, rateLimits } }))
   on('ui.status', (_, e) => {
     statuses.push(e.text)
@@ -182,5 +182,32 @@ test('should decline limits an earlier version stored under another shape', asyn
   const ui = await $.ui.mount(hint())
 
   expect(await texts(ui)).toContain('5h ░░░░░░░░░░ --%')
+  await ui.unmount()
+})
+
+test('should redraw the model as soon as it is switched, before any answer', async ($, on) => {
+  let current = 'Opus 5.5'
+  stubEngine(on, { model: () => current, rateLimits: [] })
+  on('classic.PostModelSwitch', () => ({}))
+  await $.session.start(start)
+  const ui = await $.ui.mount(hint())
+  expect(await texts(ui)).toContain('[Opus 5.5]')
+
+  current = 'Sonnet 5.5'
+  await $.classic.PostModelSwitch({
+    from_model: 'claude-opus-5-5',
+    to_model: 'claude-sonnet-5-5',
+    requested_model: 'sonnet',
+    source: 'command',
+    context_tokens: 0,
+    prompt_cache_warm: false,
+    cache_ttl: '5m',
+    estimated_cache_write_usd: 0,
+    pricing: 'catalog',
+  })
+
+  const shown = await texts(ui)
+  expect(shown).toContain('[Sonnet 5.5]')
+  expect(shown).not.toContain('[Opus 5.5]')
   await ui.unmount()
 })

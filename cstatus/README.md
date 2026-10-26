@@ -17,7 +17,8 @@ inteira logo abaixo (modo de permissão, `esc to interrupt`, atalhos).
 
 ## Atualização
 
-- A cada resposta do modelo (inclui a troca pelo `/model`, que aparece no turno seguinte).
+- A cada resposta do modelo.
+- Na hora em que o modelo é trocado (`/model`, picker, `/config`, fallback automático).
 - Quando a API informa uma mudança nos limites.
 - A cada 1 min, para zerar a janela cujo horário de reset já passou.
 

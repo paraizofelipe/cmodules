@@ -65,12 +65,22 @@ export const register: Register = on => {
     return started
   })
 
-  // Cobre a troca de modelo pelo /model e o /resume ou /clear.
+  // Cobre o /resume ou /clear.
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     if (e.agentId === undefined) await refresh($)
 
     return completed
+  })
+
+  // A troca de modelo (/model, picker, /config, fallback, resume) redesenha
+  // na hora, sem esperar a próxima resposta.
+  on('classic.PostModelSwitch', async ($, e, next) => {
+    const switched = await next(e)
+    const name = await $.session.model()
+    await update($, model, () => name)
+
+    return switched
   })
 
   on('session.measure', async ($, e, next) => {
@@ -114,7 +124,7 @@ export const register: Register = on => {
     })
 
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" paddingBottom={1}>
         <Box gap={2}>
           <Text weight="bold">[{modelName(name)}]</Text>
           {windows}

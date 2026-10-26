@@ -1,6 +1,6 @@
 {
   "name": "cstatus",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Linha abaixo do prompt com o modelo ativo e barras de uso dos limites de 5 horas e semanal",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT",
