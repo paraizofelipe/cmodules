@@ -6,7 +6,7 @@ import type { Limit } from '../types'
 const BAR_WIDTH = 10
 const WINDOWS = [
   { label: '5h', kind: 'five_hour' },
-  { label: 'semana', kind: 'seven_day' },
+  { label: 'week', kind: 'seven_day' },
 ] as const
 // Ociosa, nenhuma resposta da API chega: o tick zera a janela que resetou.
 const TICK_MS = 60_000

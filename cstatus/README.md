@@ -4,12 +4,12 @@ Mod para o Claude Code que mostra, numa linha logo abaixo do prompt, o modelo
 ativo e o uso dos limites da assinatura:
 
 ```
-[Opus 5.5]  5h ████░░░░░░ 42%  semana █░░░░░░░░░ 12%
+[Opus 5.5]  5h ████░░░░░░ 42%  week █░░░░░░░░░ 12%
 ```
 
 - **Modelo**: o do loop principal, como o `/model` mostra.
 - **5h**: uso da janela de 5 horas.
-- **semana**: uso da janela de 7 dias.
+- **week**: uso da janela de 7 dias.
 - Barra e % coloridas: verde, amarelo a partir de 70%, vermelho a partir de 90%.
 
 A linha fica entre o prompt e a linha de dicas do Claude Code, que continua

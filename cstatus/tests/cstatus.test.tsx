@@ -61,7 +61,7 @@ test('should draw the model and both windows with bar and percent', async ($, on
 
   expect(shown).toContain('[Opus 5.5]')
   expect(shown).toContain('5h ████░░░░░░ 42%')
-  expect(shown).toContain('semana █░░░░░░░░░ 12%')
+  expect(shown).toContain('week █░░░░░░░░░ 12%')
   await ui.unmount()
 })
 
@@ -126,7 +126,7 @@ test('should show empty bars when there is no rate-limit reading', async ($, on)
   const shown = await texts(ui)
 
   expect(shown).toContain('5h ░░░░░░░░░░ --%')
-  expect(shown).toContain('semana ░░░░░░░░░░ --%')
+  expect(shown).toContain('week ░░░░░░░░░░ --%')
   await ui.unmount()
 })
 
@@ -144,7 +144,7 @@ test('should show zero for a window whose reset time has passed', async ($, on) 
   const shown = await texts(ui)
 
   expect(shown).toContain('5h ░░░░░░░░░░ 0%')
-  expect(shown).toContain('semana ██████████ 100%')
+  expect(shown).toContain('week ██████████ 100%')
   await ui.unmount()
 })
 
