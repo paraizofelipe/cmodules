@@ -68,14 +68,14 @@ const BREAKDOWN = {
   apiUsage: null,
 }
 
-test('desenha os limites com barras, o do Fable e o reset vencido', async ($, on) => {
+test('não desenha os limites da assinatura, mesmo com leitura deles', async ($, on) => {
   stubEngine(on)
   on('session.usage', () => ({
     value: {
       startedAt: 0,
-      context: { window: 200_000 },
+      context: { window: 1_000_000, breakdown: BREAKDOWN },
       rateLimits: [
-        { kind: 'five_hour', percentUsed: 50, resetsAt: '2026-10-24T11:30:00Z' },
+        { kind: 'five_hour', percentUsed: 50, resetsAt: '2026-10-24T14:00:00Z' },
         { kind: 'seven_day', percentUsed: 95, resetsAt: '2026-10-27T12:00:00Z' },
         { kind: 'seven_day_fable', percentUsed: 72, resetsAt: '2026-10-27T12:00:00Z' },
       ],
@@ -85,32 +85,10 @@ test('desenha os limites com barras, o do Fable e o reset vencido', async ($, on
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount(PANE)
 
-  expect((await ui.find({ type: 'Text', text: 'Sessão (5h)' })) !== undefined).toBe(true)
-  // A janela de 5h já passou do reset: zera sem esperar nova resposta.
-  expect((await ui.find({ type: 'Text', text: '0%' })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: /^resetou às \d\d:\d\d$/ })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: '95%' })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: /^█{19}░$/ })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: /reseta em 3d 0h/ })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: 'Fable 5 (7d)' })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: '72%' })) !== undefined).toBe(true)
-  await ui.unmount()
-})
-
-test('sem a janela do Fable mostra "sem dados" nela', async ($, on) => {
-  stubEngine(on)
-  on('session.usage', () => ({
-    value: {
-      startedAt: 0,
-      context: { window: 200_000 },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 10, resetsAt: '2026-10-24T14:00:00Z' }],
-    },
-  }))
-
-  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount(PANE)
-
-  expect((await ui.find({ type: 'Text', text: 'sem dados' })) !== undefined).toBe(true)
+  expect((await ui.find({ type: 'Text', text: 'CONTEXTO' })) !== undefined).toBe(true)
+  for (const gone of [/LIMITES/, /Sessão \(5h\)/, /Semana/, /Fable/, /^50%$/, /^95%$/, /^72%$/, /reset/, /Sem dados/]) {
+    expect((await ui.find({ type: 'Text', text: gone })) === undefined).toBe(true)
+  }
   await ui.unmount()
 })
 
@@ -237,7 +215,7 @@ test('/csidebar alterna entre abrir e fechar', async ($, on) => {
   expect((await $.command.run({ command: 'csidebar' })).text).toBe('Sidebar de uso aberta.')
 })
 
-test('sem limites mostra o aviso', async ($, on) => {
+test('antes da primeira contagem mostra que o contexto está sendo calculado', async ($, on) => {
   stubEngine(on)
   on('session.usage', () => ({
     value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
@@ -246,9 +224,6 @@ test('sem limites mostra o aviso', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount(PANE)
 
-  expect((await ui.find({ type: 'Text', text: /Sem dados/ }))?.text).toBe(
-    'Sem dados de limite ainda.',
-  )
   expect((await ui.find({ type: 'Text', text: 'Calculando o contexto…' })) !== undefined).toBe(true)
   await ui.unmount()
 })

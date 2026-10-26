@@ -1,7 +1,7 @@
 {
   "name": "csidebar",
-  "version": "0.1.0",
-  "description": "Sidebar com o uso dos limites (5h, semana, Fable 5) e do contexto, com a grid do /context",
+  "version": "0.2.0",
+  "description": "Sidebar com o uso do contexto, com a grid do /context",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT",
   "types": "./types/index.d.ts"

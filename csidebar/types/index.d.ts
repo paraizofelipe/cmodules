@@ -1,5 +1,3 @@
-export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
-
 export type Square = { color: string; char: string; isDim: boolean }
 
 export type Category = { name: string; tokens: number; color: string; isFree: boolean }
@@ -18,7 +16,6 @@ export type Context = {
 declare module 'claude-code' {
   interface PluginState {
     csidebar: {
-      limits: Shaped<Limit[]>
       context: Shaped<Context | null>
       now: number
       updatedAt: number

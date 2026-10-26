@@ -7,16 +7,11 @@ import type {
   SessionContextBreakdown,
 } from 'claude-code'
 
-import type { Category, Context, Limit, Square } from '../types'
+import type { Category, Context, Square } from '../types'
 
 const PANE = 'csidebar'
 const TITLE = 'Uso'
 const COLUMNS = 46
-const WINDOWS = [
-  { label: 'Sessão (5h)', match: (kind: string) => kind === 'five_hour' },
-  { label: 'Semana (7d)', match: (kind: string) => kind === 'seven_day' },
-  { label: 'Fable 5 (7d)', match: (kind: string) => /fable/i.test(kind) },
-] as const
 const TICK_MS = 15_000
 // Sem turno rodando há esse tempo, a sessão conta como ociosa.
 const IDLE_MS = 60_000
@@ -28,17 +23,11 @@ const SWAP_DELAY_MS = 1_500
 
 // Troque o tag quando os campos mudarem: ele recusa o que uma versão anterior
 // guardou, que sobrevive ao reload.
-const limits = atom({ plugin: 'csidebar', key: 'limits' } as const, [], {
-  shape: 'limits-1',
-})
 const context = atom({ plugin: 'csidebar', key: 'context' } as const, null, {
   shape: 'context-1',
 })
 const now = atom({ plugin: 'csidebar', key: 'now' } as const, 0)
 const updatedAt = atom({ plugin: 'csidebar', key: 'updatedAt' } as const, 0)
-
-const keep = (list: readonly Limit[]): Limit[] =>
-  list.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt }))
 
 const snapshot = (b: SessionContextBreakdown): Context => {
   const kindOf = new Map(b.categories.map(c => [c.name, c.kind]))
@@ -96,24 +85,6 @@ const tokens = (count: number): string => {
 const share = (part: number, whole: number): string =>
   `${(whole > 0 ? (part / whole) * 100 : 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
 
-const clock = (at: number): string => {
-  const date = new Date(at)
-
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-}
-
-const untilReset = (resetsAt: string | undefined, at: number): string => {
-  if (resetsAt === undefined) return ''
-  const minutes = Math.max(0, Math.round((Date.parse(resetsAt) - at) / 60_000))
-  const days = Math.floor(minutes / 1440)
-  const hours = Math.floor((minutes % 1440) / 60)
-
-  if (days > 0) return `reseta em ${days}d ${hours}h`
-  if (hours > 0) return `reseta em ${hours}h ${minutes % 60}min`
-
-  return `reseta em ${minutes}min`
-}
-
 const age = (since: number, at: number): string => {
   const seconds = Math.max(0, Math.round((at - since) / 1000))
   if (seconds < 10) return 'agora'
@@ -137,7 +108,6 @@ async function refresh($: EngineInterface, detail: ContextBreakdownDetail): Prom
   try {
     const usage = await $.session.usage({ breakdown: detail, columns: 80 })
     const at = await $.clock.now()
-    await update($, limits, () => keep(usage.rateLimits))
     const breakdown = usage.context.breakdown
     if (breakdown !== undefined) await update($, context, () => snapshot(breakdown))
     if (detail === 'full') lastFull = at
@@ -167,7 +137,7 @@ export const register: Register = on => {
 
     await $.command.register({
       name: 'csidebar',
-      description: 'Abre ou fecha a sidebar com o uso dos limites e do contexto',
+      description: 'Abre ou fecha a sidebar com o uso do contexto',
     })
     lastActivity = await $.clock.now()
     await refresh($, 'summary')
@@ -242,9 +212,6 @@ export const register: Register = on => {
   })
 
   on('session.measure', async ($, e, next) => {
-    if (e.changed.includes('rateLimits')) {
-      await update($, limits, () => keep(e.rateLimits))
-    }
     if (e.changed.includes('context')) await refresh($, 'summary')
 
     return next(e)
@@ -252,7 +219,6 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const list = await read($, limits)
     const ctx = await read($, context)
     const at = await read($, now)
     const updated = await read($, updatedAt)
@@ -269,39 +235,6 @@ export const register: Register = on => {
         </Text>
       )
     }
-
-    const limitRows = list.length === 0
-      ? [
-          <Text dimColor>Sem dados de limite ainda.</Text>,
-          <Text dimColor>Aparecem após a primeira resposta (só em planos de assinatura).</Text>,
-        ]
-      : WINDOWS.map(({ label, match }) => {
-          const limit = list.find(one => match(one.kind))
-          if (limit === undefined) {
-            return (
-              <Box justifyContent="space-between">
-                <Text weight="bold">{label}</Text>
-                <Text dimColor>sem dados</Text>
-              </Box>
-            )
-          }
-          const resetAt = limit.resetsAt === undefined ? undefined : Date.parse(limit.resetsAt)
-          const hasReset = resetAt !== undefined && resetAt <= at
-          const percent = hasReset ? 0 : limit.percentUsed
-
-          return (
-            <Box flexDirection="column">
-              <Box justifyContent="space-between">
-                <Text weight="bold">{label}</Text>
-                <Text color={colorOf(percent)}>{percent}%</Text>
-              </Box>
-              {bar(percent)}
-              {hasReset
-                ? <Text color="success">resetou às {clock(resetAt)}</Text>
-                : <Text dimColor>{untilReset(limit.resetsAt, at)}</Text>}
-            </Box>
-          )
-        })
 
     const contextRows = (() => {
       if (ctx === null) return [<Text dimColor>Calculando o contexto…</Text>]
@@ -373,17 +306,13 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1}>
         <Box justifyContent="space-between">
-          <Text dimColor>LIMITES</Text>
+          <Text dimColor>CONTEXTO</Text>
           <Text dimColor>
             {isStale ? 'atualizando…' : isIdle ? 'ociosa · ' : ''}
             {isStale || updated === 0 ? '' : `↻ ${age(updated, at)}`}
           </Text>
         </Box>
-        {limitRows}
-        <Box justifyContent="space-between">
-          <Text dimColor>CONTEXTO</Text>
-          <Text dimColor>{ctx?.model ?? ''}</Text>
-        </Box>
+        {ctx === null ? [] : [<Text dimColor>{ctx.model}</Text>]}
         {contextRows}
       </Box>
     )

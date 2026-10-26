@@ -6,7 +6,7 @@
     {
       "name": "csidebar",
       "source": "./csidebar",
-      "description": "Sidebar com o uso dos limites (5h, semana, Fable 5) e do contexto, com a grid do /context"
+      "description": "Sidebar com o uso do contexto, com a grid do /context"
     },
     {
       "name": "cstatus",
