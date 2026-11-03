@@ -7,11 +7,13 @@ import type {
   SessionContextBreakdown,
 } from 'claude-code'
 
-import type { Category, Context, Square } from '../types'
+import type { Category, Context } from '../types'
 
 const PANE = 'csidebar'
 const TITLE = 'Uso'
 const COLUMNS = 46
+// A barra de cada categoria nunca fica mais estreita que isto.
+const MIN_ITEM_BAR = 5
 const TICK_MS = 15_000
 // Sem turno rodando há esse tempo, a sessão conta como ociosa.
 const IDLE_MS = 60_000
@@ -24,28 +26,19 @@ const SWAP_DELAY_MS = 1_500
 // Troque o tag quando os campos mudarem: ele recusa o que uma versão anterior
 // guardou, que sobrevive ao reload.
 const context = atom({ plugin: 'csidebar', key: 'context' } as const, null, {
-  shape: 'context-1',
+  shape: 'context-2',
 })
 const now = atom({ plugin: 'csidebar', key: 'now' } as const, 0)
 const updatedAt = atom({ plugin: 'csidebar', key: 'updatedAt' } as const, 0)
 
-const snapshot = (b: SessionContextBreakdown): Context => {
-  const kindOf = new Map(b.categories.map(c => [c.name, c.kind]))
-  const grid = b.gridRows.map(row =>
-    row.map((square): Square => {
-      const kind = kindOf.get(square.categoryName)
-      if (kind === 'buffer') return { color: square.color, char: '⛝', isDim: true }
-      if (kind === 'free' || !square.isFilled) {
-        return { color: square.color, char: '⛶', isDim: true }
-      }
+// Nomes do engine encurtados para caber na sidebar.
+const LABELS: Record<string, string> = { 'MCP server instructions': 'MCP instructions' }
 
-      return { color: square.color, char: square.squareFullness < 0.7 ? '⛀' : '⛁', isDim: false }
-    }),
-  )
+const snapshot = (b: SessionContextBreakdown): Context => {
   const categories = b.categories
     .filter(c => c.kind !== 'deferred')
     .map((c): Category => ({
-      name: c.name,
+      name: LABELS[c.name] ?? c.name,
       tokens: c.tokens,
       color: c.color,
       isFree: c.kind === 'free' || c.kind === 'buffer',
@@ -61,7 +54,6 @@ const snapshot = (b: SessionContextBreakdown): Context => {
     maxTokens: b.rawMaxTokens,
     percentage: b.percentage,
     autoCompactThreshold: b.isAutoCompactEnabled ? b.autoCompactThreshold : undefined,
-    grid,
     categories,
     mcpServers: [...servers]
       .filter(([, tokens]) => tokens > 0)
@@ -115,7 +107,7 @@ async function refresh($: EngineInterface, detail: ContextBreakdownDetail): Prom
   if (isRefreshing) return false
   isRefreshing = true
   try {
-    const usage = await $.session.usage({ breakdown: detail, columns: 80 })
+    const usage = await $.session.usage({ breakdown: detail })
     const at = await $.clock.now()
     const breakdown = usage.context.breakdown
     if (breakdown !== undefined) await update($, context, () => snapshot(breakdown))
@@ -247,8 +239,12 @@ export const register: Register = on => {
 
     const contextRows = (() => {
       if (ctx === null) return [<Text dimColor>Calculando o contexto…</Text>]
-      const cols = ctx.grid[0]?.length ?? 0
-      const gap = width >= cols * 2 ? ' ' : ''
+      // Colunas alinhadas: nome à esquerda, tokens e % à direita, a barra no meio.
+      const nameWidth = Math.max(0, ...ctx.categories.map(c => c.name.length))
+      const shares = ctx.categories.map(c => share(c.tokens, ctx.maxTokens))
+      const amounts = ctx.categories.map((c, i) => `${tokens(c.tokens)} ${shares[i]}`)
+      const amountWidth = Math.max(0, ...amounts.map(a => a.length))
+      const barWidth = Math.max(MIN_ITEM_BAR, width - nameWidth - amountWidth - 5)
       const left = ctx.autoCompactThreshold === undefined
         ? 'auto-compact desligado'
         : `auto-compact em ${tokens(ctx.autoCompactThreshold)} · faltam ${tokens(Math.max(0, ctx.autoCompactThreshold - ctx.totalTokens))}`
@@ -263,38 +259,22 @@ export const register: Register = on => {
           <Text dimColor>{left}</Text>
         </Box>,
         <Box flexDirection="column">
-          {ctx.grid.map(row => {
-            // Junta quadrados vizinhos da mesma cor num Text só.
-            const runs: { color: string; isDim: boolean; text: string }[] = []
-            for (const square of row) {
-              const last = runs.at(-1)
-              if (last !== undefined && last.color === square.color && last.isDim === square.isDim) {
-                last.text += square.char + gap
-              } else {
-                runs.push({ color: square.color, isDim: square.isDim, text: square.char + gap })
-              }
-            }
+          {ctx.categories.map((category, i) => {
+            const part = ctx.maxTokens > 0 ? category.tokens / ctx.maxTokens : 0
+            // Um item com tokens nunca some da barra, por menor que seja.
+            const filled = Math.min(barWidth, Math.max(category.tokens > 0 ? 1 : 0, Math.round(part * barWidth)))
 
             return (
               <Text>
-                {runs.map(run => (
-                  <Text color={run.color} dimColor={run.isDim}>
-                    {run.text}
-                  </Text>
-                ))}
+                <Text color={category.color} dimColor={category.isFree}>{category.isFree ? '⛶' : '⛁'}</Text>{' '}
+                {category.name.padEnd(nameWidth)}{' '}
+                <Text color={category.color} dimColor={category.isFree}>{'█'.repeat(filled)}</Text>
+                <Text dimColor>{'░'.repeat(barWidth - filled)}</Text>{' '}
+                <Text dimColor>{tokens(category.tokens).padStart(amountWidth - (shares[i] ?? '').length - 1)} </Text>
+                <Text color="text">{shares[i]}</Text>
               </Text>
             )
           })}
-        </Box>,
-        <Box flexDirection="column">
-          {ctx.categories.map(category => (
-            <Box justifyContent="space-between">
-              <Text>
-                <Text color={category.color} dimColor={category.isFree}>{category.isFree ? '⛶' : '⛁'}</Text> {category.name}
-              </Text>
-              <Text dimColor>{tokens(category.tokens)} {share(category.tokens, ctx.maxTokens)}</Text>
-            </Box>
-          ))}
         </Box>,
         ...(ctx.mcpServers.length === 0
           ? []

@@ -7,9 +7,16 @@ da assinatura (5h e semana) ficam no [cstatus](../cstatus).
   auto-compact dispara. A cor segue a distância até o auto-compact: verde
   longe dele, amarela nos últimos 20% do caminho e vermelha quando ele já vai
   rodar. Com o auto-compact desligado, a medida é a própria janela.
-- **Contexto por categoria**: a mesma grid do `/context`, com a legenda por
-  categoria (System prompt, System tools, MCP, Skills, Messages…) e os tokens
-  de cada servidor MCP carregado.
+- **Contexto por categoria**: uma linha por categoria do `/context` (System
+  prompt, System tools, MCP, Skills, Messages…), com uma barra na cor da
+  categoria, os tokens e a fatia da janela, mais os tokens de cada servidor MCP
+  carregado:
+
+  ```
+  ⛁ System prompt      █░░░░░░    2,9k 0,3%
+  ⛁ Messages           █░░░░░░  78,3k 7,8%
+  ⛶ Free space         ██████░ 885,8k 88,6%
+  ```
 
 ## Atualização
 

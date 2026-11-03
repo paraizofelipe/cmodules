@@ -1,5 +1,3 @@
-export type Square = { color: string; char: string; isDim: boolean }
-
 export type Category = { name: string; tokens: number; color: string; isFree: boolean }
 
 export type Context = {
@@ -8,7 +6,6 @@ export type Context = {
   maxTokens: number
   percentage: number
   autoCompactThreshold?: number
-  grid: Square[][]
   categories: Category[]
   mcpServers: { name: string; tokens: number }[]
 }

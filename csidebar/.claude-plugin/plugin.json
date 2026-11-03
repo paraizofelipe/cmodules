@@ -1,7 +1,7 @@
 {
   "name": "csidebar",
-  "version": "0.2.1",
-  "description": "Sidebar com o uso do contexto, com a grid do /context",
+  "version": "0.2.2",
+  "description": "Sidebar com o uso do contexto e uma barra por categoria",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT",
   "types": "./types/index.d.ts"

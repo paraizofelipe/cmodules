@@ -92,7 +92,7 @@ test('não desenha os limites da assinatura, mesmo com leitura deles', async ($,
   await ui.unmount()
 })
 
-test('desenha o contexto: total, grid, categorias e MCP por servidor', async ($, on) => {
+test('desenha o contexto: total, categorias com barra e MCP por servidor', async ($, on) => {
   stubEngine(on)
   on('session.usage', () => ({
     value: {
@@ -110,9 +110,21 @@ test('desenha o contexto: total, grid, categorias e MCP por servidor', async ($,
   expect((await ui.find({ type: 'Text', text: '8%' })) !== undefined).toBe(true)
   expect((await ui.find({ type: 'Text', text: /^██░{18}$/ })) !== undefined).toBe(true)
   expect((await ui.find({ type: 'Text', text: 'auto-compact em 967k · faltam 885,8k' })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: '⛁ ⛁ ⛶ ⛝ ' })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: '⛁ Messages' })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: '78,3k 7,8%' })) !== undefined).toBe(true)
+  // Sem a grid do /context: nenhuma linha só de quadrados.
+  expect((await ui.find({ type: 'Text', text: /^([⛁⛀⛶⛝] ?){2,}$/ })) === undefined).toBe(true)
+  const texts = await ui.findAll({ type: 'Text' })
+  const row = (name: string) => texts.find(one => one.text.startsWith(`⛁ ${name}`) || one.text.startsWith(`⛶ ${name}`))
+  // Nome, barra, tokens e % alinhados; um item pequeno ainda ganha 1 bloco.
+  expect(row('System prompt')?.text).toBe('⛁ System prompt      █░░░░    2,9k 0,3%')
+  expect(row('Messages')?.text).toBe('⛁ Messages           █░░░░   78,3k 7,8%')
+  expect(row('Free space')?.text).toBe('⛶ Free space         ████░ 885,8k 88,6%')
+  // A barra cheia de cada item vem na cor da categoria; a livre, apagada.
+  expect(texts.find(one => one.text === '█' && one.props.color === 'purple') !== undefined).toBe(true)
+  expect(texts.find(one => one.text === '████' && one.props.color === 'inactive')?.props.dimColor).toBe(true)
+  // Só a % de cada item fica em branco (a cor de texto do tema); os tokens seguem apagados.
+  expect(texts.find(one => one.text === '7,8%')?.props.color).toBe('text')
+  expect(texts.find(one => one.text === '7,8%')?.props.dimColor).toBeUndefined()
+  expect(texts.find(one => one.text.trim() === '78,3k')?.props.dimColor).toBe(true)
   // Schemas carregados sob demanda ficam fora da janela e da legenda.
   expect((await ui.find({ type: 'Text', text: /deferred/ })) === undefined).toBe(true)
   expect((await ui.find({ type: 'Text', text: /docs/ })) !== undefined).toBe(true)
@@ -256,3 +268,19 @@ for (const { name, totalTokens, percentage, isAutoCompactEnabled, color } of [
     await ui.unmount()
   })
 }
+
+test('mostra a categoria MCP server instructions como MCP instructions', async ($, on) => {
+  stubEngine(on)
+  const instructions = { name: 'MCP server instructions', tokens: 1_200, color: 'cyan', isDeferred: false, kind: 'used' }
+  const breakdown = { ...BREAKDOWN, categories: [...BREAKDOWN.categories, instructions] }
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 1_000_000, breakdown }, rateLimits: [] },
+  }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+
+  expect((await ui.find({ type: 'Text', text: /^⛁ MCP instructions +█/ })) !== undefined).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /MCP server instructions/ })) === undefined).toBe(true)
+  await ui.unmount()
+})
