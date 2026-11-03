@@ -1,213 +1,145 @@
 import { expect, test } from 'claude-code/testing'
-import type { TestBody } from 'claude-code/testing'
 
-const NOW = Date.parse('2026-10-24T12:00:00Z')
-const LATER = '2026-10-24T14:00:00Z'
-const EARLIER = '2026-10-24T11:00:00Z'
+const CONFIG = '/home/u/.claude'
+const SETTINGS = `${CONFIG}/settings.json`
+const STABLE = `${CONFIG}/cstatus/statusline.mjs`
+const NODE = '/usr/bin/node'
+const SOURCE = '// statusline v2'
+const OURS = `"${NODE}" "${STABLE}"`
 
-type Limit = { kind: string; percentUsed: number; resetsAt?: string }
-type On = Parameters<TestBody>[1]
+type On = Parameters<Parameters<typeof test>[1]>[1]
 
-const hint = (props: { isWorking?: boolean; isDraft?: boolean } = {}) =>
-  ({
-    plugin: 'cstatus',
-    component: 'PromptHint',
-    surface: 'terminal',
-    props: { isWorking: false, isDraft: false, hint: '? for shortcuts', ...props },
-  }) as const
-
+// Um disco em memória: o que o mod lê e escreve passa por aqui.
 const stubEngine = (
   on: On,
-  { model, rateLimits }: { model: string | (() => string); rateLimits: Limit[] },
-): (string | undefined)[] => {
-  const statuses: (string | undefined)[] = []
-  on('clock.now', () => ({ value: NOW }))
-  on('clock.every', () => ({ value: undefined }))
-  on('session.model', () => ({ value: typeof model === 'function' ? model() : model }))
-  on('session.usage', () => ({ value: { startedAt: NOW, context: { window: 1_000_000 }, rateLimits } }))
-  on('ui.status', (_, e) => {
-    statuses.push(e.text)
+  files: Record<string, string>,
+  { node = NODE, onStatus = (_: string | undefined) => {} } = {},
+) => {
+  on('process.run', (_, e) => {
+    const script = e.argv.at(-1) ?? ''
+    const stdout = script.includes('CLAUDE_CONFIG_DIR') ? CONFIG : script.includes('command -v node') ? node : ''
 
-    return { value: undefined }
+    return { value: { exitCode: stdout === '' ? 1 : 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
+  on('fs.exists', (_, e) => ({ value: e.path in files || e.path.endsWith('/statusline/statusline.mjs') }))
+  on('fs.read', (_, e) => ({ value: e.path.endsWith('/statusline/statusline.mjs') ? SOURCE : files[e.path] ?? '' }))
+  on('fs.write', (_, e) => ((files[e.path] = e.text), { value: undefined }))
+  on('command.register', () => ({ value: { command: 'cstatus' } }))
+  on('ui.status', (_, e) => (onStatus(e.text), { value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  // A linha de dicas do engine, que o mod mantém abaixo da sua.
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-
-    return <Text>? for shortcuts</Text>
-  })
-
-  return statuses
 }
 
 const start = { cwd: '/', surface: 'terminal', isInteractive: true } as const
+const settingsOf = (files: Record<string, string>) => JSON.parse(files[SETTINGS] ?? '{}')
 
-const texts = async (ui: { findAll: (q: { type: string }) => Promise<{ text: string }[]> }) =>
-  (await ui.findAll({ type: 'Text' })).map(one => one.text)
+test('/cstatus instala a status line e mantém o resto do settings.json', async ($, on) => {
+  const files: Record<string, string> = { [SETTINGS]: '{ "theme": "dark" }' }
+  stubEngine(on, files)
 
-test('should draw the model and both windows with bar and percent', async ($, on) => {
-  stubEngine(on, {
-    model: 'Opus 5.5 (1M context)',
-    rateLimits: [
-      { kind: 'five_hour', percentUsed: 42, resetsAt: LATER },
-      { kind: 'seven_day', percentUsed: 12.4, resetsAt: LATER },
-    ],
-  })
-  await $.session.start(start)
+  const { text } = await $.command.run({ command: 'cstatus' })
 
-  const ui = await $.ui.mount(hint())
-  const shown = await texts(ui)
-
-  expect(shown).toContain('[Opus 5.5]')
-  expect(shown).toContain('5h ████░░░░░░ 42%')
-  expect(shown).toContain('week █░░░░░░░░░ 12%')
-  await ui.unmount()
+  expect(text).toContain('status line instalada')
+  expect(settingsOf(files)).toEqual({ theme: 'dark', statusLine: { type: 'command', command: OURS } })
+  expect(files[STABLE]).toBe(SOURCE)
+  expect(files[`${SETTINGS}.cstatus.bak`]).toBe('{ "theme": "dark" }')
 })
 
-test('should color a window by how much of it is used', async ($, on) => {
-  stubEngine(on, {
-    model: 'Opus 5.5',
-    rateLimits: [
-      { kind: 'five_hour', percentUsed: 75, resetsAt: LATER },
-      { kind: 'seven_day', percentUsed: 95, resetsAt: LATER },
-    ],
-  })
-  await $.session.start(start)
+test('/cstatus cria o settings.json quando ele não existe, sem backup', async ($, on) => {
+  const files: Record<string, string> = {}
+  stubEngine(on, files)
 
-  const ui = await $.ui.mount(hint())
-  const colorOf = async (text: string) =>
-    (await ui.findAll({ type: 'Text' })).find(one => one.text === text)?.props.color
+  await $.command.run({ command: 'cstatus' })
 
-  expect(await colorOf('75%')).toBe('warning')
-  expect(await colorOf('95%')).toBe('error')
-  await ui.unmount()
+  expect(settingsOf(files)).toEqual({ statusLine: { type: 'command', command: OURS } })
+  expect(`${SETTINGS}.cstatus.bak` in files).toBe(false)
 })
 
-for (const props of [{}, { isWorking: true }, { isDraft: true }]) {
-  test(`should keep the engine's line below its own (${JSON.stringify(props)})`, async ($, on) => {
-    stubEngine(on, { model: 'Opus 5.5', rateLimits: [] })
-    await $.session.start(start)
+test('/cstatus não troca uma statusLine que é de outro programa', async ($, on) => {
+  const other = '{ "statusLine": { "type": "command", "command": "~/.claude/hud.sh" } }'
+  const files: Record<string, string> = { [SETTINGS]: other }
+  stubEngine(on, files)
 
-    const ui = await $.ui.mount(hint(props))
-    const shown = await texts(ui)
+  const { text } = await $.command.run({ command: 'cstatus' })
 
-    expect(shown).toContain('? for shortcuts')
-    expect(shown.indexOf('[Opus 5.5]')).toBeGreaterThanOrEqual(0)
-    expect(shown.indexOf('[Opus 5.5]')).toBeLessThan(shown.indexOf('? for shortcuts'))
-    await ui.unmount()
-  })
-}
-
-test('should give the line back to the engine before the session started', async ($, on) => {
-  stubEngine(on, { model: 'Opus 5.5', rateLimits: [] })
-
-  const ui = await $.ui.mount(hint())
-
-  expect(await texts(ui)).toEqual(['? for shortcuts'])
-  await ui.unmount()
+  expect(text).toContain('já existe outra statusLine')
+  expect(files[SETTINGS]).toBe(other)
 })
 
-test('should turn a model id into its display name', async ($, on) => {
-  stubEngine(on, { model: 'claude-sonnet-5-5', rateLimits: [] })
-  await $.session.start(start)
+test('/cstatus não mexe num settings.json que não é JSON válido', async ($, on) => {
+  const files: Record<string, string> = { [SETTINGS]: '{ quebrado' }
+  stubEngine(on, files)
 
-  const ui = await $.ui.mount(hint())
+  const { text } = await $.command.run({ command: 'cstatus' })
 
-  expect(await texts(ui)).toContain('[Sonnet 5.5]')
-  await ui.unmount()
+  expect(text).toContain('não é um JSON válido')
+  expect(files[SETTINGS]).toBe('{ quebrado')
 })
 
-test('should show empty bars when there is no rate-limit reading', async ($, on) => {
-  stubEngine(on, { model: 'Opus 5.5', rateLimits: [] })
-  await $.session.start(start)
+test('/cstatus avisa quando não acha o node, sem escrever nada', async ($, on) => {
+  const files: Record<string, string> = { [SETTINGS]: '{}' }
+  stubEngine(on, files, { node: '' })
 
-  const ui = await $.ui.mount(hint())
-  const shown = await texts(ui)
+  const { text } = await $.command.run({ command: 'cstatus' })
 
-  expect(shown).toContain('5h ░░░░░░░░░░ --%')
-  expect(shown).toContain('week ░░░░░░░░░░ --%')
-  await ui.unmount()
+  expect(text).toContain('não achei o `node`')
+  expect(files[SETTINGS]).toBe('{}')
 })
 
-test('should show zero for a window whose reset time has passed', async ($, on) => {
-  stubEngine(on, {
-    model: 'Opus 5.5',
-    rateLimits: [
-      { kind: 'five_hour', percentUsed: 97, resetsAt: EARLIER },
-      { kind: 'seven_day', percentUsed: 100, resetsAt: LATER },
-    ],
-  })
-  await $.session.start(start)
+test('/cstatus off remove só a statusLine do cstatus', async ($, on) => {
+  const files: Record<string, string> = {
+    [SETTINGS]: JSON.stringify({ theme: 'dark', statusLine: { type: 'command', command: OURS } }),
+  }
+  stubEngine(on, files)
 
-  const ui = await $.ui.mount(hint())
-  const shown = await texts(ui)
+  const { text } = await $.command.run({ command: 'cstatus', args: 'off' })
 
-  expect(shown).toContain('5h ░░░░░░░░░░ 0%')
-  expect(shown).toContain('week ██████████ 100%')
-  await ui.unmount()
+  expect(text).toContain('removida')
+  expect(settingsOf(files)).toEqual({ theme: 'dark' })
 })
 
-test('should clamp a reading past 100 to a full bar', async ($, on) => {
-  stubEngine(on, {
-    model: 'Opus 5.5',
-    rateLimits: [{ kind: 'five_hour', percentUsed: 130, resetsAt: LATER }],
-  })
-  await $.session.start(start)
+test('/cstatus off não remove a statusLine de outro programa', async ($, on) => {
+  const other = '{ "statusLine": { "type": "command", "command": "~/.claude/hud.sh" } }'
+  const files: Record<string, string> = { [SETTINGS]: other }
+  stubEngine(on, files)
 
-  const ui = await $.ui.mount(hint())
+  const { text } = await $.command.run({ command: 'cstatus', args: 'off' })
 
-  expect(await texts(ui)).toContain('5h ██████████ 130%')
-  await ui.unmount()
+  expect(text).toContain('nada foi alterado')
+  expect(files[SETTINGS]).toBe(other)
 })
 
-test('should clear the status line an earlier version pinned', async ($, on) => {
-  const statuses = stubEngine(on, { model: 'Opus 5.5', rateLimits: [] })
+test('ao iniciar, atualiza o script copiado e o caminho do node de uma instalação antiga', async ($, on) => {
+  const old = `"/old/node" "${STABLE}"`
+  const files: Record<string, string> = {
+    [SETTINGS]: JSON.stringify({ statusLine: { type: 'command', command: old } }),
+    [STABLE]: '// statusline v1',
+  }
+  stubEngine(on, files)
 
   await $.session.start(start)
 
-  expect(statuses).toEqual([undefined])
+  expect(files[STABLE]).toBe(SOURCE)
+  expect(settingsOf(files).statusLine.command).toBe(OURS)
 })
 
-test('should decline limits an earlier version stored under another shape', async ($, on) => {
-  stubEngine(on, { model: 'Opus 5.5', rateLimits: [] })
-  on('state.get', (_, e) =>
-    e.key === 'model'
-      ? { value: { value: 'Opus 5.5', version: 1 } }
-      : e.key === 'limits'
-        ? { value: { value: [{ kind: 'five_hour', percentUsed: 50 }], version: 1 } }
-        : { value: { value: NOW, version: 1 } },
-  )
+test('ao iniciar, não instala nada sozinho nem toca na statusLine de outro programa', async ($, on) => {
+  const other = '{ "statusLine": { "type": "command", "command": "~/.claude/hud.sh" } }'
+  const files: Record<string, string> = { [SETTINGS]: other }
+  stubEngine(on, files)
 
-  const ui = await $.ui.mount(hint())
-
-  expect(await texts(ui)).toContain('5h ░░░░░░░░░░ --%')
-  await ui.unmount()
-})
-
-test('should redraw the model as soon as it is switched, before any answer', async ($, on) => {
-  let current = 'Opus 5.5'
-  stubEngine(on, { model: () => current, rateLimits: [] })
-  on('classic.PostModelSwitch', () => ({}))
   await $.session.start(start)
-  const ui = await $.ui.mount(hint())
-  expect(await texts(ui)).toContain('[Opus 5.5]')
 
-  current = 'Sonnet 5.5'
-  await $.classic.PostModelSwitch({
-    from_model: 'claude-opus-5-5',
-    to_model: 'claude-sonnet-5-5',
-    requested_model: 'sonnet',
-    source: 'command',
-    context_tokens: 0,
-    prompt_cache_warm: false,
-    cache_ttl: '5m',
-    estimated_cache_write_usd: 0,
-    pricing: 'catalog',
-  })
+  expect(files[SETTINGS]).toBe(other)
+  expect(STABLE in files).toBe(false)
+})
 
-  const shown = await texts(ui)
-  expect(shown).toContain('[Sonnet 5.5]')
-  expect(shown).not.toContain('[Opus 5.5]')
-  await ui.unmount()
+test('ao iniciar, limpa o aviso fixo que a versão 0.1.0 deixava', async ($, on) => {
+  const files: Record<string, string> = {}
+  const cleared: (string | undefined)[] = []
+  stubEngine(on, files, { onStatus: text => cleared.push(text) })
+
+  await $.session.start(start)
+
+  expect(cleared).toEqual([undefined])
 })

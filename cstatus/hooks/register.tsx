@@ -1,136 +1,119 @@
-import { atom, read, update } from 'claude-code'
-import type { Color, EngineInterface, Register, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
-import type { Limit } from '../types'
+// A linha entre o prompt e a do modo de permissão é a status line nativa: a API
+// de mods não desenha ali. Este módulo instala `statusline/statusline.mjs` como
+// a `statusLine` do settings.json do usuário e o mantém em dia.
 
-const BAR_WIDTH = 10
-const WINDOWS = [
-  { label: '5h', kind: 'five_hour' },
-  { label: 'week', kind: 'seven_day' },
-] as const
-// Ociosa, nenhuma resposta da API chega: o tick zera a janela que resetou.
-const TICK_MS = 60_000
+const SCRIPT = 'statusline/statusline.mjs'
+// Fora da pasta do plugin, que muda a cada versão instalada.
+const STABLE_SCRIPT = 'cstatus/statusline.mjs'
+const BACKUP_SUFFIX = '.cstatus.bak'
 
-// Troque o tag quando os campos mudarem: ele recusa o que uma versão anterior
-// guardou, que sobrevive ao reload.
-const model = atom({ plugin: 'cstatus', key: 'model' } as const, '')
-const limits = atom({ plugin: 'cstatus', key: 'limits' } as const, [], {
-  shape: 'limits-1',
-})
-const now = atom({ plugin: 'cstatus', key: 'now' } as const, 0)
+type Settings = { statusLine?: { type?: string; command?: string } } & Record<string, unknown>
+type Paths = { settings: string; script: string; node: string }
 
-// "claude-opus-5-5" → "Opus 5.5"; "Opus 5.5 (1M context)" → "Opus 5.5".
-export const modelName = (raw: string): string => {
-  const id = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/i.exec(raw)
-  if (id !== null) {
-    const [, name = '', major, minor] = id
-    const family = name.charAt(0).toUpperCase() + name.slice(1)
+const sh = async ($: EngineInterface, script: string): Promise<string> => {
+  const { exitCode, stdout } = await $.process.run(['sh', '-c', script], { timeoutMs: 5_000 })
 
-    return minor === undefined ? `${family} ${major}` : `${family} ${major}.${minor}`
+  return exitCode === 0 ? stdout.trim() : ''
+}
+
+async function pathsOf($: EngineInterface): Promise<Paths | string> {
+  const configDir = await sh($, 'printf %s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"')
+  if (configDir === '') return 'não achei a pasta de configuração do Claude Code'
+  const node = await sh($, 'command -v node')
+  if (node === '') return 'não achei o `node` no PATH; a status line precisa dele'
+
+  return { settings: `${configDir}/settings.json`, script: `${configDir}/${STABLE_SCRIPT}`, node }
+}
+
+export const commandOf = ({ node, script }: Pick<Paths, 'node' | 'script'>): string =>
+  `"${node}" "${script}"`
+
+export const isOurs = (settings: Settings): boolean =>
+  settings.statusLine?.command?.includes(`/${STABLE_SCRIPT}`) === true
+
+async function readSettings($: EngineInterface, path: string): Promise<{ text?: string; settings: Settings } | string> {
+  if (!(await $.fs.exists(path))) return { settings: {} }
+  const text = (await $.fs.read(path)) as string
+  try {
+    return { text, settings: JSON.parse(text) as Settings }
+  } catch {
+    return `${path} não é um JSON válido; nada foi alterado`
   }
-
-  return raw.replace(/\s*\(.*\)\s*$/, '').trim()
 }
 
-const colorOf = (percent: number): Color =>
-  percent >= 90 ? 'error' : percent >= 70 ? 'warning' : 'success'
-
-const keep = (list: readonly SessionRateLimit[]): Limit[] =>
-  list.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt }))
-
-const percentOf = (limit: Limit, at: number): number => {
-  const hasReset = limit.resetsAt !== undefined && Date.parse(limit.resetsAt) <= at
-
-  return hasReset ? 0 : Math.round(limit.percentUsed)
+// Copia o script só quando mudou, para o Claude Code não reler à toa.
+async function copyScript($: EngineInterface, target: string): Promise<void> {
+  const source = (await $.fs.read(`${$.plugin.root}/${SCRIPT}`)) as string
+  const current = (await $.fs.exists(target)) ? ((await $.fs.read(target)) as string) : undefined
+  if (current !== source) await $.fs.write(target, source)
 }
 
-async function refresh($: EngineInterface): Promise<void> {
-  const [usage, name, at] = await Promise.all([$.session.usage(), $.session.model(), $.clock.now()])
-  await update($, limits, () => keep(usage.rateLimits))
-  await update($, model, () => name)
-  await update($, now, () => at)
+async function writeSettings($: EngineInterface, path: string, read: { text?: string }, settings: Settings) {
+  if (read.text !== undefined) await $.fs.write(`${path}${BACKUP_SUFFIX}`, read.text)
+  await $.fs.write(path, `${JSON.stringify(settings, null, 2)}\n`)
+}
+
+async function install($: EngineInterface): Promise<string> {
+  const paths = await pathsOf($)
+  if (typeof paths === 'string') return `cstatus: ${paths}.`
+  const read = await readSettings($, paths.settings)
+  if (typeof read === 'string') return `cstatus: ${read}.`
+  if (read.settings.statusLine !== undefined && !isOurs(read.settings)) {
+    return 'cstatus: já existe outra statusLine no settings.json; remova-a antes de instalar o cstatus.'
+  }
+  await copyScript($, paths.script)
+  const command = commandOf(paths)
+  if (read.settings.statusLine?.command === command) return 'cstatus: a status line já está instalada.'
+  await writeSettings($, paths.settings, read, { ...read.settings, statusLine: { type: 'command', command } })
+
+  return `cstatus: status line instalada em ${paths.settings} (backup em ${paths.settings}${BACKUP_SUFFIX}).`
+}
+
+async function uninstall($: EngineInterface): Promise<string> {
+  const paths = await pathsOf($)
+  if (typeof paths === 'string') return `cstatus: ${paths}.`
+  const read = await readSettings($, paths.settings)
+  if (typeof read === 'string') return `cstatus: ${read}.`
+  if (!isOurs(read.settings)) return 'cstatus: a statusLine do settings.json não é a do cstatus; nada foi alterado.'
+  const { statusLine: _, ...rest } = read.settings
+  await writeSettings($, paths.settings, read, rest)
+
+  return 'cstatus: status line removida.'
+}
+
+// A cada sessão: atualiza o script copiado e, se o node mudou de lugar (nvm,
+// mise), o comando. Só mexe numa statusLine que já é do cstatus.
+async function sync($: EngineInterface): Promise<void> {
+  const paths = await pathsOf($)
+  if (typeof paths === 'string') return
+  const read = await readSettings($, paths.settings)
+  if (typeof read === 'string' || !isOurs(read.settings)) return
+  await copyScript($, paths.script)
+  const command = commandOf(paths)
+  if (read.settings.statusLine?.command !== command) {
+    await writeSettings($, paths.settings, read, { ...read.settings, statusLine: { type: 'command', command } })
+  }
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    // A versão anterior fixava a linha com $.ui.status; um reload não a apaga.
+    // A 0.1.0 fixava a linha com $.ui.status; um reload não a apaga.
     $.ui.status(undefined)
-    await refresh($)
-    $.clock.every(TICK_MS, async () => {
-      const tick = await $.clock.now()
-      await update($, now, () => tick)
+    await $.command.register({
+      name: 'cstatus',
+      description: 'Instala a status line do cstatus abaixo do prompt (`/cstatus off` remove)',
     })
+    await sync($).catch(error => $.ui.log(`cstatus: ${String(error)}`, { to: 'debug' }))
 
     return started
   })
 
-  // Cobre o /resume ou /clear.
-  on('turn.complete', async ($, e, next) => {
-    const completed = await next(e)
-    if (e.agentId === undefined) await refresh($)
+  on('command.run', { command: 'cstatus' }, async ($, e) => {
+    const text = (e.args ?? '').trim() === 'off' ? await uninstall($) : await install($)
 
-    return completed
-  })
-
-  // A troca de modelo (/model, picker, /config, fallback, resume) redesenha
-  // na hora, sem esperar a próxima resposta.
-  on('classic.PostModelSwitch', async ($, e, next) => {
-    const switched = await next(e)
-    const name = await $.session.model()
-    await update($, model, () => name)
-
-    return switched
-  })
-
-  on('session.measure', async ($, e, next) => {
-    if (e.changed.includes('rateLimits')) {
-      await update($, limits, () => keep(e.rateLimits))
-    }
-
-    return next(e)
-  })
-
-  // Uma linha entre o prompt e a de dicas do engine, que segue inteira abaixo
-  // (modo de permissão, `esc to interrupt`, atalhos).
-  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const name = await read($, model)
-    if (name === '') return next(e)
-
-    const engine = await next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    const list = await read($, limits)
-    const at = await read($, now)
-
-    const windows = WINDOWS.map(({ label, kind }) => {
-      const limit = list.find(one => one.kind === kind)
-      if (limit === undefined) {
-        return (
-          <Text>
-            {label} <Text dimColor>{'░'.repeat(BAR_WIDTH)} --%</Text>
-          </Text>
-        )
-      }
-      const percent = percentOf(limit, at)
-      const filled = Math.round((Math.min(100, percent) / 100) * BAR_WIDTH)
-
-      return (
-        <Text>
-          {label} <Text color={colorOf(percent)}>{'█'.repeat(filled)}</Text>
-          <Text dimColor>{'░'.repeat(BAR_WIDTH - filled)}</Text>{' '}
-          <Text color={colorOf(percent)}>{percent}%</Text>
-        </Text>
-      )
-    })
-
-    return (
-      <Box flexDirection="column" paddingBottom={1}>
-        <Box gap={2}>
-          <Text weight="bold">[{modelName(name)}]</Text>
-          {windows}
-        </Box>
-        {engine}
-      </Box>
-    )
+    return { text }
   })
 }

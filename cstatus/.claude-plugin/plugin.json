@@ -1,8 +1,7 @@
 {
   "name": "cstatus",
-  "version": "0.1.2",
-  "description": "Linha abaixo do prompt com o modelo ativo e barras de uso dos limites de 5 horas e semanal",
+  "version": "0.2.0",
+  "description": "Status line abaixo do prompt com o modelo ativo e barras de uso dos limites de 5 horas e semanal",
   "author": { "name": "Felipe Paraizo" },
-  "license": "MIT",
-  "types": "./types/index.d.ts"
+  "license": "MIT"
 }

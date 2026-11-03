@@ -11,7 +11,7 @@
     {
       "name": "cstatus",
       "source": "./cstatus",
-      "description": "Linha abaixo do prompt com o modelo ativo e barras de uso dos limites de 5 horas e semanal"
+      "description": "Status line abaixo do prompt com o modelo ativo e barras de uso dos limites de 5 horas e semanal"
     }
   ]
 }
