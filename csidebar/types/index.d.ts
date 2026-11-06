@@ -10,6 +10,7 @@ export type Context = {
   autoCompactThreshold?: number
   categories: Category[]
   mcpServers: { name: string; tokens: number }[]
+  mcpActive: { name: string; tools: number }[]
 }
 
 declare module 'claude-code' {

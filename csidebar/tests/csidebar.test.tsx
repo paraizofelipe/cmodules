@@ -141,7 +141,10 @@ test('desenha o contexto: total com barra, categorias em tabela de 3 colunas e M
   // Schemas carregados sob demanda ficam fora da janela e da legenda.
   expect((await ui.find({ type: 'Text', text: /deferred/ })) === undefined).toBe(true)
   expect((await ui.find({ type: 'Text', text: /docs/ })) !== undefined).toBe(true)
-  expect((await ui.find({ type: 'Text', text: /mail/ })) === undefined).toBe(true)
+  // Na "MCP por servidor" só entra quem tem tools carregadas: mail fica fora dela.
+  const tokensRows = (await ui.findAll({ type: 'Text' })).filter(one => one.text.startsWith('  '))
+  expect(tokensRows.some(one => one.text.includes('docs'))).toBe(true)
+  expect(tokensRows.some(one => one.text.includes('mail'))).toBe(false)
   await ui.unmount()
 })
 
@@ -318,10 +321,15 @@ type On = Parameters<Parameters<typeof test>[1]>[1]
 
 const stubSessions = (
   on: Parameters<On>[0],
-  { cwd = '/work/app', configDir, listed }: { cwd?: string; configDir?: string; listed?: string[] } = {},
+  {
+    cwd = '/work/app',
+    configDir,
+    listed,
+    breakdown = BREAKDOWN,
+  }: { cwd?: string; configDir?: string; listed?: string[]; breakdown?: typeof BREAKDOWN } = {},
 ) => {
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { window: 1_000_000, breakdown: BREAKDOWN }, rateLimits: [] },
+    value: { startedAt: 0, context: { window: 1_000_000, breakdown }, rateLimits: [] },
   }))
   on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/eu' : e.name === 'CLAUDE_CONFIG_DIR' ? configDir : undefined }))
   on('session.cwd', () => ({ value: cwd }))
@@ -402,4 +410,43 @@ test('usa a pasta da conta ativa quando CLAUDE_CONFIG_DIR está definido', async
   await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
 
   expect(listed[0]).toBe('/contas/trabalho/projects/-work-app')
+})
+
+test('lista os MCPs ativos com o total de tools, carregadas ou adiadas, antes das sessões', async ($, on) => {
+  stubEngine(on)
+  const many = Array.from({ length: 3 }, (_, i) => ({ name: `mcp__zeta__t${i}`, serverName: 'zeta', tokens: 0, isLoaded: false }))
+  const long = { name: 'mcp__x__t', serverName: 'servidor-com-nome-bem-comprido', tokens: 0, isLoaded: false }
+  const breakdown = { ...BREAKDOWN, mcpTools: [...BREAKDOWN.mcpTools, ...many, long] }
+  stubSessions(on, { breakdown })
+
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  const texts = (await ui.findAll({ type: 'Text' })).map(one => one.text)
+
+  expect(texts.includes('MCP ATIVOS · 4')).toBe(true)
+  // Mais tools primeiro; empate pelo nome. mail entra mesmo só com tools adiadas.
+  const names = ['zeta', 'docs', 'mail', 'servidor-com…']
+  const at = names.map(name => texts.indexOf(name))
+  expect(at.every(i => i !== -1)).toBe(true)
+  expect([...at].sort((a, b) => a - b)).toEqual(at)
+  expect(texts[at[0]! + 1]).toBe('3')
+  expect(texts[at[1]! + 1]).toBe('2')
+  expect(texts[at[2]! + 1]).toBe('1')
+  // Nome comprido cortado para caber: 20 colunas - 2 de espaço - 5 de "Tools" = 13.
+  expect('servidor-com…'.length).toBe(13)
+  // Logo antes das sessões.
+  expect(texts.indexOf('MCP ATIVOS · 4')).toBeLessThan(texts.indexOf('SESSÕES'))
+  expect(texts.indexOf('MCP por servidor')).toBeLessThan(texts.indexOf('MCP ATIVOS · 4'))
+  await ui.unmount()
+})
+
+test('sem tools MCP na sessão, não mostra a lista de MCPs ativos', async ($, on) => {
+  stubEngine(on)
+  stubSessions(on, { breakdown: { ...BREAKDOWN, mcpTools: [] } })
+
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+
+  expect((await ui.find({ type: 'Text', text: /MCP ATIVOS/ })) === undefined).toBe(true)
+  await ui.unmount()
 })

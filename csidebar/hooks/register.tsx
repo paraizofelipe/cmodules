@@ -28,7 +28,7 @@ const SWAP_DELAY_MS = 1_500
 // Troque o tag quando os campos mudarem: ele recusa o que uma versão anterior
 // guardou, que sobrevive ao reload.
 const context = atom({ plugin: 'csidebar', key: 'context' } as const, null, {
-  shape: 'context-2',
+  shape: 'context-3',
 })
 const sessions = atom({ plugin: 'csidebar', key: 'sessions' } as const, [], {
   shape: 'sessions-1',
@@ -49,7 +49,10 @@ const snapshot = (b: SessionContextBreakdown): Context => {
       isFree: c.kind === 'free' || c.kind === 'buffer',
     }))
   const servers = new Map<string, number>()
+  // Toda tool do servidor conta, carregada ou adiada.
+  const toolCounts = new Map<string, number>()
   for (const tool of b.mcpTools) {
+    toolCounts.set(tool.serverName, (toolCounts.get(tool.serverName) ?? 0) + 1)
     if (tool.isLoaded) servers.set(tool.serverName, (servers.get(tool.serverName) ?? 0) + tool.tokens)
   }
 
@@ -64,6 +67,9 @@ const snapshot = (b: SessionContextBreakdown): Context => {
       .filter(([, tokens]) => tokens > 0)
       .map(([name, tokens]) => ({ name, tokens }))
       .sort((a, b) => b.tokens - a.tokens),
+    mcpActive: [...toolCounts]
+      .map(([name, tools]) => ({ name, tools }))
+      .sort((a, b) => b.tools - a.tools || a.name.localeCompare(b.name)),
   }
 }
 
@@ -360,6 +366,30 @@ export const register: Register = on => {
       )
     }
 
+    // Servidores MCP com tools na sessão e quantas tools cada um tem; os tokens
+    // ficam na "MCP por servidor".
+    const mcpActiveRows = (servers: Context['mcpActive']) => {
+      const countWidth = Math.max('Tools'.length, ...servers.map(one => String(one.tools).length))
+      const nameWidth = Math.max(1, width - COLUMN_GAP - countWidth)
+      const fit = (name: string) => (name.length > nameWidth ? `${name.slice(0, nameWidth - 1).trimEnd()}…` : name)
+
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>MCP ATIVOS · {servers.length}</Text>
+          <Box justifyContent="space-between">
+            <Text dimColor>Servidor</Text>
+            <Text dimColor>Tools</Text>
+          </Box>
+          {servers.map(one => (
+            <Box justifyContent="space-between">
+              <Text>{fit(one.name)}</Text>
+              <Text dimColor>{one.tools}</Text>
+            </Box>
+          ))}
+        </Box>
+      )
+    }
+
     const contextRows = (() => {
       if (ctx === null) return [<Text dimColor>Calculando o contexto…</Text>]
       // Tabela: categoria à esquerda, tokens e % alinhados à direita.
@@ -423,6 +453,7 @@ export const register: Register = on => {
         </Box>
         {ctx === null ? [] : [<Text dimColor>{ctx.model}</Text>]}
         {contextRows}
+        {ctx === null || ctx.mcpActive.length === 0 ? [] : [mcpActiveRows(ctx.mcpActive)]}
         {list.length === 0 ? [] : [sessionRows(list)]}
       </Box>
     )

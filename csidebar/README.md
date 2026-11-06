@@ -20,6 +20,10 @@ da assinatura (5h e semana) ficam no [cstatus](../cstatus).
   ⛶ Free space       885,8k  88,6%
   ```
 
+- **MCP ativos**: os servidores MCP com tools na sessão e o total de tools de
+  cada um (carregadas ou adiadas), do que tem mais tools para o que tem menos.
+  Servidores que falharam ao conectar não aparecem: a API de mods só vê os que
+  têm tools.
 - **Sessões**: as 8 sessões mais recentes do projeto, com título (o do
   `/rename` vence o automático) e idade. A atual vem marcada com `▸`; clicar
   em outra, ou apertar o dígito dela com a sidebar em foco (`ctrl+x` `tab`),
