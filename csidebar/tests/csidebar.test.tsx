@@ -297,3 +297,109 @@ test('mostra a categoria MCP server instructions como MCP instructions', async (
   expect((await ui.find({ type: 'Text', text: /MCP server instructions/ })) === undefined).toBe(true)
   await ui.unmount()
 })
+
+const SESSIONS_DIR = '/home/eu/.claude/projects/-work-app'
+const HOUR = 3_600_000
+const LISTING = [
+  { name: 'atual.jsonl', kind: 'file', size: 10, mtimeMs: NOW, isLink: false },
+  { name: 'renomeada.jsonl', kind: 'file', size: 10, mtimeMs: NOW - 2 * HOUR, isLink: false },
+  { name: 'sem-titulo.jsonl', kind: 'file', size: 10, mtimeMs: NOW - 3 * 24 * HOUR, isLink: false },
+  { name: 'subdir', kind: 'dir', size: 0, mtimeMs: NOW, isLink: false },
+  { name: 'notas.txt', kind: 'file', size: 10, mtimeMs: NOW, isLink: false },
+]
+const GREP_OUT = [
+  `${SESSIONS_DIR}/atual.jsonl:"type":"ai-title","aiTitle":"Tabela no csidebar"`,
+  `${SESSIONS_DIR}/renomeada.jsonl:"type":"ai-title","aiTitle":"Título automático"`,
+  `${SESSIONS_DIR}/renomeada.jsonl:"type":"custom-title","customTitle":"Fix pipeline do hector"`,
+  `${SESSIONS_DIR}/renomeada.jsonl:"type":"ai-title","aiTitle":"Outro automático"`,
+].join('\n')
+
+type On = Parameters<Parameters<typeof test>[1]>[1]
+
+const stubSessions = (
+  on: Parameters<On>[0],
+  { cwd = '/work/app', configDir, listed }: { cwd?: string; configDir?: string; listed?: string[] } = {},
+) => {
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 1_000_000, breakdown: BREAKDOWN }, rateLimits: [] },
+  }))
+  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/eu' : e.name === 'CLAUDE_CONFIG_DIR' ? configDir : undefined }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('session.id', () => ({ value: 'atual' }))
+  on('fs.list', (_, e) => {
+    listed?.push(e.path ?? '')
+    if (e.path !== SESSIONS_DIR) throw new Error(`ENOENT ${e.path}`)
+
+    return { value: LISTING }
+  })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: GREP_OUT, stderr: '' } }))
+}
+
+test('lista as sessões do projeto: a atual marcada, as outras com dígito, título e idade', async ($, on) => {
+  stubEngine(on)
+  stubSessions(on)
+
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  const texts = await ui.findAll({ type: 'Text' })
+
+  expect(texts.find(one => one.text === 'SESSÕES')?.props.dimColor).toBe(true)
+  // Corpo de 20 colunas: 3 do prefixo, título, 2 de espaço e a idade à direita.
+  const current = texts.find(one => one.text.startsWith('▸ '))
+  expect(current?.text).toBe('▸  Tabela no…  agora')
+  expect(current?.text.length).toBe(20)
+  expect(current?.props.bold).toBe(true)
+  const buttons = await ui.findAll({ type: 'Button' })
+  // Só arquivos .jsonl viram sessão; a atual não é botão.
+  expect(buttons.length).toBe(2)
+  // O /rename vence o título automático, mesmo vindo antes dele.
+  // Botões sem [ ]: o terminal desenha `1: ` (3 colunas) antes do label.
+  expect(buttons.every(one => one.props.plain === true)).toBe(true)
+  expect(buttons[0]?.text).toBe('Fix pipel…  há 2h')
+  expect(buttons[0]?.props.hotkey).toBe('1')
+  expect(`1: ${buttons[0]?.text}`.length).toBe(20)
+  // Sem título no transcript, cai para o começo do id.
+  expect(buttons[1]?.text).toBe('sessão se…  há 3d')
+  expect(buttons[1]?.props.hotkey).toBe('2')
+  await ui.unmount()
+})
+
+test('pressionar uma sessão roda /resume com o id dela', async ($, on) => {
+  stubEngine(on)
+  stubSessions(on)
+  const runs: { command: string; args: string }[] = []
+  on('command.run', (_, e) => {
+    runs.push({ command: e.command, args: e.args })
+
+    return { text: '' }
+  })
+
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  await ui.press({ key: 'session-renomeada' })
+
+  expect(runs).toEqual([{ command: 'resume', args: 'renomeada' }])
+  await ui.unmount()
+})
+
+test('sem a pasta de sessões, não mostra a lista e mantém o contexto', async ($, on) => {
+  stubEngine(on)
+  stubSessions(on, { cwd: '/outro/lugar' })
+
+  await $.session.start({ cwd: '/outro/lugar', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+
+  expect((await ui.find({ type: 'Text', text: 'SESSÕES' })) === undefined).toBe(true)
+  expect((await ui.find({ type: 'Text', text: 'CONTEXTO' })) !== undefined).toBe(true)
+  await ui.unmount()
+})
+
+test('usa a pasta da conta ativa quando CLAUDE_CONFIG_DIR está definido', async ($, on) => {
+  stubEngine(on)
+  const listed: string[] = []
+  stubSessions(on, { configDir: '/contas/trabalho', listed })
+
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+
+  expect(listed[0]).toBe('/contas/trabalho/projects/-work-app')
+})

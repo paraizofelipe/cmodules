@@ -20,6 +20,19 @@ da assinatura (5h e semana) ficam no [cstatus](../cstatus).
   ⛶ Free space       885,8k  88,6%
   ```
 
+- **Sessões**: as 8 sessões mais recentes do projeto, com título (o do
+  `/rename` vence o automático) e idade. A atual vem marcada com `▸`; clicar
+  em outra, ou apertar o dígito dela com a sidebar em foco (`ctrl+x` `tab`),
+  roda `/resume` nela. Lê os transcripts da conta ativa (`CLAUDE_CONFIG_DIR`,
+  ou `~/.claude`) e precisa do `grep` no PATH.
+
+  ```
+  SESSÕES
+  ▸  Tabela no csidebar         agora
+  1: Fix pipeline do hector     há 2h
+  2: Revisão GMUD 4512          há 3d
+  ```
+
 ## Atualização
 
 - A cada resposta do modelo, o contexto é recontado por estimativa local (sem custo).

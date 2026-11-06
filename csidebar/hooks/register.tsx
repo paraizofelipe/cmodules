@@ -7,7 +7,7 @@ import type {
   SessionContextBreakdown,
 } from 'claude-code'
 
-import type { Category, Context } from '../types'
+import type { Category, Context, Session } from '../types'
 
 const PANE = 'csidebar'
 const TITLE = 'Uso'
@@ -29,6 +29,9 @@ const SWAP_DELAY_MS = 1_500
 // guardou, que sobrevive ao reload.
 const context = atom({ plugin: 'csidebar', key: 'context' } as const, null, {
   shape: 'context-2',
+})
+const sessions = atom({ plugin: 'csidebar', key: 'sessions' } as const, [], {
+  shape: 'sessions-1',
 })
 const now = atom({ plugin: 'csidebar', key: 'now' } as const, 0)
 const updatedAt = atom({ plugin: 'csidebar', key: 'updatedAt' } as const, 0)
@@ -96,6 +99,79 @@ const age = (since: number, at: number): string => {
   return `há ${Math.floor(seconds / 60)}min`
 }
 
+// Quantas sessões do projeto a lista mostra, a atual entre elas; com 8, os
+// dígitos 1 a 7 bastam para as outras.
+const SESSION_LIMIT = 8
+// Colunas antes do título: o `1: ` que o terminal desenha num botão plain.
+const SESSION_PREFIX = 3
+
+const ago = (since: number, at: number): string => {
+  const minutes = Math.max(0, Math.floor((at - since) / 60_000))
+  if (minutes < 1) return 'agora'
+  if (minutes < 60) return `há ${minutes}min`
+  if (minutes < 24 * 60) return `há ${Math.floor(minutes / 60)}h`
+
+  return `há ${Math.floor(minutes / (24 * 60))}d`
+}
+
+// Título por transcript, refeito só quando o arquivo muda.
+const titles = new Map<string, { mtimeMs: number; title: string }>()
+
+// O `/rename` (customTitle) vence o título automático (aiTitle); vale o último.
+const TITLE_PATTERN = '"type":"(custom-title|ai-title)","(customTitle|aiTitle)":"([^"\\\\]|\\\\.)*"'
+
+async function readTitles($: EngineInterface, files: { id: string; path: string }[]): Promise<Map<string, string>> {
+  const found = new Map<string, { custom?: string; ai?: string }>()
+  if (files.length === 0) return new Map()
+  const { stdout } = await $.process.run(['grep', '-H', '-o', '-E', TITLE_PATTERN, ...files.map(f => f.path)], {
+    timeoutMs: 5_000,
+  })
+  for (const line of stdout.split('\n')) {
+    const cut = line.indexOf('.jsonl:')
+    if (cut === -1) continue
+    const id = line.slice(0, cut).split('/').pop() ?? ''
+    try {
+      const entry = JSON.parse(`{${line.slice(cut + '.jsonl:'.length)}}`) as { customTitle?: string; aiTitle?: string }
+      const titlesOf = found.get(id) ?? {}
+      if (entry.customTitle !== undefined) titlesOf.custom = entry.customTitle
+      if (entry.aiTitle !== undefined) titlesOf.ai = entry.aiTitle
+      found.set(id, titlesOf)
+    } catch {
+      // Linha cortada ou escapada de um jeito que o padrão não previu: sem título.
+    }
+  }
+
+  return new Map([...found].map(([id, t]) => [id, t.custom ?? t.ai ?? '']))
+}
+
+// Os transcripts ficam em <config>/projects/<cwd com cada não alfanumérico → ->.
+async function refreshSessions($: EngineInterface): Promise<void> {
+  try {
+    const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
+    const cwd = await $.session.cwd()
+    const current = await $.session.id()
+    const dir = `${config}/projects/${cwd.replace(/[^a-zA-Z0-9]/g, '-')}`
+    const latest = (await $.fs.list(dir))
+      .filter(one => one.kind === 'file' && one.name.endsWith('.jsonl'))
+      .map(one => ({ id: one.name.slice(0, -'.jsonl'.length), path: `${dir}/${one.name}`, mtimeMs: one.mtimeMs }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, SESSION_LIMIT)
+    const changed = latest.filter(one => titles.get(one.id)?.mtimeMs !== one.mtimeMs)
+    const read = await readTitles($, changed)
+    for (const one of changed) titles.set(one.id, { mtimeMs: one.mtimeMs, title: read.get(one.id) ?? '' })
+    await update($, sessions, () =>
+      latest.map(one => ({
+        id: one.id,
+        title: titles.get(one.id)?.title || `sessão ${one.id.slice(0, 8)}`,
+        mtimeMs: one.mtimeMs,
+        isCurrent: one.id === current,
+      })),
+    )
+  } catch {
+    // Sem a pasta ou sem o grep, a lista só não aparece.
+  }
+}
+
 // Variáveis do módulo: um reload as zera, o que só adia a próxima contagem completa.
 let isRunning = false
 let isRefreshing = false
@@ -131,7 +207,10 @@ async function refreshStale($: EngineInterface): Promise<void> {
 function markStale($: EngineInterface): void {
   isStale = true
   lastFull = 0
-  $.clock.after(SWAP_DELAY_MS, () => void refreshStale($))
+  $.clock.after(SWAP_DELAY_MS, () => {
+    void refreshStale($)
+    void refreshSessions($)
+  })
 }
 
 export const register: Register = on => {
@@ -144,10 +223,12 @@ export const register: Register = on => {
     })
     lastActivity = await $.clock.now()
     await refresh($, 'summary')
+    await refreshSessions($)
     // Redesenha as idades e, ociosa, mantém os números em dia.
     $.clock.every(TICK_MS, async () => {
       const tick = await $.clock.now()
       await update($, now, () => tick)
+      await refreshSessions($)
       if (isStale) return refreshStale($)
       const isIdle = !isRunning && tick - lastActivity >= IDLE_MS
       if (isIdle && tick - lastFull >= FULL_EVERY_MS) await refresh($, 'full')
@@ -221,7 +302,8 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const list = await read($, sessions)
     const ctx = await read($, context)
     const at = await read($, now)
     const updated = await read($, updatedAt)
@@ -241,6 +323,39 @@ export const register: Register = on => {
           <Box width={PERCENT_WIDTH} justifyContent="flex-end">
             <Text color={color}>{percent}%</Text>
           </Box>
+        </Box>
+      )
+    }
+
+    // Uma linha por sessão: título cortado à esquerda, idade à direita. A atual
+    // leva ▸ e não é botão; as outras são botões `plain`, que o terminal desenha
+    // sem [ ] como `1: título`, e o dígito as retoma com a sidebar em foco.
+    const sessionRows = (list: Session[]) => {
+      const ages = list.map(one => ago(one.mtimeMs, at))
+      const ageWidth = Math.max(...ages.map(a => a.length))
+      const titleWidth = Math.max(1, width - SESSION_PREFIX - COLUMN_GAP - ageWidth)
+      const fit = (title: string) =>
+        (title.length > titleWidth ? `${title.slice(0, titleWidth - 1).trimEnd()}…` : title).padEnd(titleWidth)
+      let hotkey = 0
+
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>SESSÕES</Text>
+          {list.map((one, i) => {
+            const line = `${fit(one.title)}${' '.repeat(COLUMN_GAP)}${(ages[i] ?? '').padStart(ageWidth)}`
+            if (one.isCurrent) return <Text bold>{'▸'.padEnd(SESSION_PREFIX)}{line}</Text>
+            hotkey += 1
+
+            return (
+              <Button
+                key={`session-${one.id}`}
+                plain
+                hotkey={String(hotkey)}
+                label={line}
+                onPress={() => void $.command.run({ command: 'resume', args: one.id })}
+              />
+            )
+          })}
         </Box>
       )
     }
@@ -308,6 +423,7 @@ export const register: Register = on => {
         </Box>
         {ctx === null ? [] : [<Text dimColor>{ctx.model}</Text>]}
         {contextRows}
+        {list.length === 0 ? [] : [sessionRows(list)]}
       </Box>
     )
   })

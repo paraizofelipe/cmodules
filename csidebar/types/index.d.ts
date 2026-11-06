@@ -1,5 +1,7 @@
 export type Category = { name: string; tokens: number; color: string; isFree: boolean }
 
+export type Session = { id: string; title: string; mtimeMs: number; isCurrent: boolean }
+
 export type Context = {
   model: string
   totalTokens: number
@@ -14,6 +16,7 @@ declare module 'claude-code' {
   interface PluginState {
     csidebar: {
       context: Shaped<Context | null>
+      sessions: Shaped<Session[]>
       now: number
       updatedAt: number
     }
