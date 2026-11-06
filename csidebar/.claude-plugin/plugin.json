@@ -1,7 +1,7 @@
 {
   "name": "csidebar",
-  "version": "0.2.2",
-  "description": "Sidebar com o uso do contexto e uma barra por categoria",
+  "version": "0.3.0",
+  "description": "Sidebar com o uso do contexto: barra do total e tabela por categoria",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT",
   "types": "./types/index.d.ts"

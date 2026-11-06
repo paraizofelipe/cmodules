@@ -12,8 +12,10 @@ import type { Category, Context } from '../types'
 const PANE = 'csidebar'
 const TITLE = 'Uso'
 const COLUMNS = 46
-// A barra de cada categoria nunca fica mais estreita que isto.
-const MIN_ITEM_BAR = 5
+// Espaço entre as colunas da tabela de categorias e entre a barra e a %.
+const COLUMN_GAP = 2
+// A % do total fica à direita da barra, num espaço fixo que cabe "100%".
+const PERCENT_WIDTH = 4
 const TICK_MS = 15_000
 // Sem turno rodando há esse tempo, a sessão conta como ociosa.
 const IDLE_MS = 60_000
@@ -226,55 +228,58 @@ export const register: Register = on => {
     const width = Math.max(10, e.props.bodyColumns - 2)
     const isIdle = !isRunning && at - lastActivity >= IDLE_MS
 
+    const barWidth = Math.max(1, width - COLUMN_GAP - PERCENT_WIDTH)
     const bar = (percent: number, color: Color) => {
-      const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
+      const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * barWidth)
 
       return (
-        <Text>
-          <Text color={color}>{'█'.repeat(filled)}</Text>
-          <Text dimColor>{'░'.repeat(width - filled)}</Text>
-        </Text>
+        <Box columnGap={COLUMN_GAP}>
+          <Text>
+            <Text color={color}>{'█'.repeat(filled)}</Text>
+            <Text dimColor>{'░'.repeat(barWidth - filled)}</Text>
+          </Text>
+          <Box width={PERCENT_WIDTH} justifyContent="flex-end">
+            <Text color={color}>{percent}%</Text>
+          </Box>
+        </Box>
       )
     }
 
     const contextRows = (() => {
       if (ctx === null) return [<Text dimColor>Calculando o contexto…</Text>]
-      // Colunas alinhadas: nome à esquerda, tokens e % à direita, a barra no meio.
-      const nameWidth = Math.max(0, ...ctx.categories.map(c => c.name.length))
+      // Tabela: categoria à esquerda, tokens e % alinhados à direita.
       const shares = ctx.categories.map(c => share(c.tokens, ctx.maxTokens))
-      const amounts = ctx.categories.map((c, i) => `${tokens(c.tokens)} ${shares[i]}`)
-      const amountWidth = Math.max(0, ...amounts.map(a => a.length))
-      const barWidth = Math.max(MIN_ITEM_BAR, width - nameWidth - amountWidth - 5)
+      const amounts = ctx.categories.map(c => tokens(c.tokens))
+      const tokensWidth = Math.max('Tokens'.length, ...amounts.map(a => a.length))
+      const shareWidth = Math.max('%'.length, ...shares.map(a => a.length))
+      const row = (name: JSX.Element, amount: JSX.Element, part: JSX.Element) => (
+        <Box columnGap={COLUMN_GAP}>
+          <Box flexGrow={1}>{name}</Box>
+          <Box width={tokensWidth} justifyContent="flex-end">{amount}</Box>
+          <Box width={shareWidth} justifyContent="flex-end">{part}</Box>
+        </Box>
+      )
       const left = ctx.autoCompactThreshold === undefined
         ? 'auto-compact desligado'
         : `auto-compact em ${tokens(ctx.autoCompactThreshold)} · faltam ${tokens(Math.max(0, ctx.autoCompactThreshold - ctx.totalTokens))}`
 
       return [
         <Box flexDirection="column">
-          <Box justifyContent="space-between">
-            <Text>{tokens(ctx.totalTokens)} / {tokens(ctx.maxTokens)} tokens</Text>
-            <Text color={colorOf(ctx)}>{ctx.percentage}%</Text>
-          </Box>
+          <Text>{tokens(ctx.totalTokens)} / {tokens(ctx.maxTokens)} tokens</Text>
           {bar(ctx.percentage, colorOf(ctx))}
           <Text dimColor>{left}</Text>
         </Box>,
         <Box flexDirection="column">
-          {ctx.categories.map((category, i) => {
-            const part = ctx.maxTokens > 0 ? category.tokens / ctx.maxTokens : 0
-            // Um item com tokens nunca some da barra, por menor que seja.
-            const filled = Math.min(barWidth, Math.max(category.tokens > 0 ? 1 : 0, Math.round(part * barWidth)))
-
-            return (
-              <Text>
-                <Text color={category.color} dimColor={category.isFree}>{category.isFree ? '⛶' : '⛁'}</Text>{' '}
-                {category.name.padEnd(nameWidth)}{' '}
-                <Text color={category.color} dimColor={category.isFree}>{'█'.repeat(filled)}</Text>
-                <Text dimColor>{'░'.repeat(barWidth - filled)}</Text>{' '}
-                <Text dimColor>{tokens(category.tokens).padStart(amountWidth - (shares[i] ?? '').length - 1)} </Text>
-                <Text color="text">{shares[i]}</Text>
-              </Text>
-            )
-          })}
+          {row(<Text dimColor>Categoria</Text>, <Text dimColor>Tokens</Text>, <Text dimColor>%</Text>)}
+          {ctx.categories.map((category, i) =>
+            row(
+              <Text wrap="truncate-end">
+                <Text color={category.color} dimColor={category.isFree}>{category.isFree ? '⛶' : '⛁'}</Text> {category.name}
+              </Text>,
+              <Text dimColor>{amounts[i]}</Text>,
+              <Text color="text">{shares[i]}</Text>,
+            ),
+          )}
         </Box>,
         ...(ctx.mcpServers.length === 0
           ? []
@@ -293,7 +298,7 @@ export const register: Register = on => {
     })()
 
     return (
-      <Box flexDirection="column" gap={1}>
+      <Box flexDirection="column" gap={1} paddingX={1}>
         <Box justifyContent="space-between">
           <Text dimColor>CONTEXTO</Text>
           <Text dimColor>
