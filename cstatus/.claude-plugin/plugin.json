@@ -1,7 +1,7 @@
 {
   "name": "cstatus",
-  "version": "0.2.0",
-  "description": "Status line abaixo do prompt com o modelo ativo e barras de uso dos limites de 5 horas e semanal",
+  "version": "0.3.0",
+  "description": "Status line abaixo do prompt com o modelo ativo, o esforço, barras de uso dos limites de 5 horas e semanal, e a branch/worktree do git",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT"
 }

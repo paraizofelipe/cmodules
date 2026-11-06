@@ -6,13 +6,15 @@ assinatura, logo abaixo do prompt e acima da linha do modo de permissão:
 ```
 ❯
 ────────────────────────────────────────────────────
-  [Opus 5.5]  5h ████░░░░░░ 42%  week █░░░░░░░░░ 12%
+  [Opus 5.5] [high] - 5h ████░░░░░░ 42%  week █░░░░░░░░░ 12% - ⎇ main
   ⏵⏵ auto mode on (shift+tab to cycle)
 ```
 
 - **Modelo**: o do loop principal, como o `/model` mostra.
+- **Esforço**: o nível da sessão (`low` a `max`), entre colchetes após o modelo, nas cores do slider do `/effort` (low amarelo, medium verde, high azul, xhigh roxo, max arco-íris); some quando o modelo não aceita esforço.
 - **5h**: uso da janela de 5 horas.
 - **week**: uso da janela de 7 dias.
+- **⎇ branch** / **⌥ worktree**: branch atual (hash curto com HEAD destacado) e, numa worktree ligada, o nome dela. Some fora de um repo git.
 - Barra e % coloridas: verde, amarelo a partir de 70%, vermelho a partir de 90%.
 
 ## Como funciona
