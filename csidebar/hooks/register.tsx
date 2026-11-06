@@ -12,6 +12,8 @@ import type { Category, Context, Session } from '../types'
 const PANE = 'csidebar'
 const TITLE = 'Uso'
 const COLUMNS = 46
+// Cor dos títulos de seção: o laranja de destaque do tema.
+const HEADING_COLOR: Color = 'claude'
 // Espaço entre as colunas da tabela de categorias e entre a barra e a %.
 const COLUMN_GAP = 2
 // A % do total fica à direita da barra, num espaço fixo que cabe "100%".
@@ -315,6 +317,12 @@ export const register: Register = on => {
     const updated = await read($, updatedAt)
     const width = Math.max(10, e.props.bodyColumns - 2)
     const isIdle = !isRunning && at - lastActivity >= IDLE_MS
+    // Título de seção: negrito na cor de destaque do tema, para separar do conteúdo.
+    const heading = (title: string) => (
+      <Text bold color={HEADING_COLOR}>
+        {title}
+      </Text>
+    )
 
     const barWidth = Math.max(1, width - COLUMN_GAP - PERCENT_WIDTH)
     const bar = (percent: number, color: Color) => {
@@ -346,7 +354,7 @@ export const register: Register = on => {
 
       return (
         <Box flexDirection="column">
-          <Text dimColor>SESSÕES</Text>
+          {heading('SESSÕES')}
           {list.map((one, i) => {
             const line = `${fit(one.title)}${' '.repeat(COLUMN_GAP)}${(ages[i] ?? '').padStart(ageWidth)}`
             if (one.isCurrent) return <Text bold>{'▸'.padEnd(SESSION_PREFIX)}{line}</Text>
@@ -375,7 +383,7 @@ export const register: Register = on => {
 
       return (
         <Box flexDirection="column">
-          <Text dimColor>MCP ATIVOS · {servers.length}</Text>
+          {heading(`MCP ATIVOS · ${servers.length}`)}
           <Box justifyContent="space-between">
             <Text dimColor>Servidor</Text>
             <Text dimColor>Tools</Text>
@@ -430,7 +438,7 @@ export const register: Register = on => {
           ? []
           : [
               <Box flexDirection="column">
-                <Text dimColor>MCP por servidor</Text>
+                {heading('MCP por servidor')}
                 {ctx.mcpServers.map(server => (
                   <Box justifyContent="space-between">
                     <Text dimColor>  {server.name}</Text>
@@ -445,7 +453,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
         <Box justifyContent="space-between">
-          <Text dimColor>CONTEXTO</Text>
+          {heading('CONTEXTO')}
           <Text dimColor>
             {isStale ? 'atualizando…' : isIdle ? 'ociosa · ' : ''}
             {isStale || updated === 0 ? '' : `↻ ${age(updated, at)}`}

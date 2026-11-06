@@ -351,7 +351,7 @@ test('lista as sessões do projeto: a atual marcada, as outras com dígito, tít
   const ui = await $.ui.mount(PANE)
   const texts = await ui.findAll({ type: 'Text' })
 
-  expect(texts.find(one => one.text === 'SESSÕES')?.props.dimColor).toBe(true)
+  expect(texts.find(one => one.text === 'SESSÕES')?.props.bold).toBe(true)
   // Corpo de 20 colunas: 3 do prefixo, título, 2 de espaço e a idade à direita.
   const current = texts.find(one => one.text.startsWith('▸ '))
   expect(current?.text).toBe('▸  Tabela no…  agora')
@@ -448,5 +448,22 @@ test('sem tools MCP na sessão, não mostra a lista de MCPs ativos', async ($, o
   const ui = await $.ui.mount(PANE)
 
   expect((await ui.find({ type: 'Text', text: /MCP ATIVOS/ })) === undefined).toBe(true)
+  await ui.unmount()
+})
+
+test('destaca os títulos das seções em negrito na cor de destaque', async ($, on) => {
+  stubEngine(on)
+  stubSessions(on)
+
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  const texts = await ui.findAll({ type: 'Text' })
+
+  for (const title of ['CONTEXTO', 'MCP por servidor', 'MCP ATIVOS · 2', 'SESSÕES']) {
+    const found = texts.find(one => one.text === title)
+    expect(found?.props.bold).toBe(true)
+    expect(found?.props.color).toBe('claude')
+    expect(found?.props.dimColor).toBeUndefined()
+  }
   await ui.unmount()
 })

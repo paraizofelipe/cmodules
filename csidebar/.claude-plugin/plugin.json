@@ -1,6 +1,6 @@
 {
   "name": "csidebar",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Sidebar com o uso do contexto (barra do total e tabela por categoria), os MCPs ativos e as sessões do projeto para retomar",
   "author": { "name": "Felipe Paraizo" },
   "license": "MIT",
